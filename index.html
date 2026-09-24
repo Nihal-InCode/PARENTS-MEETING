@@ -530,17 +530,34 @@
       setupEventListeners();
     });
 
-    // Fetch classes on load
-    function loadClasses() {
-      fetch('/api/classes')
+    // Static catalog (instant, CDN-cached) — loaded once
+    let studentCatalog = null;
+
+    function loadStudentCatalog() {
+      if (studentCatalog) return Promise.resolve(studentCatalog);
+      const cached = sessionStorage.getItem('studentCatalog');
+      if (cached) {
+        try {
+          studentCatalog = JSON.parse(cached);
+          return Promise.resolve(studentCatalog);
+        } catch (e) { /* ignore */ }
+      }
+      return fetch('/data/students.json')
         .then(r => {
           if (!r.ok) throw new Error('HTTP ' + r.status);
           return r.json();
         })
         .then(data => {
-          if (data && data.error) throw new Error(data.error);
-          populateClasses(data);
-        })
+          studentCatalog = data;
+          try { sessionStorage.setItem('studentCatalog', JSON.stringify(data)); } catch (e) {}
+          return data;
+        });
+    }
+
+    // Fetch classes on load (static file — no Apps Script round-trip)
+    function loadClasses() {
+      loadStudentCatalog()
+        .then(data => populateClasses(data.classes || []))
         .catch(err => showAlert('Failed to load classes: ' + err.message));
     }
 
@@ -595,14 +612,11 @@
 
       if (!selectedClass) return;
 
-      fetch(`/api/students?class=${encodeURIComponent(selectedClass)}`)
-        .then(r => {
-          if (!r.ok) throw new Error('HTTP ' + r.status);
-          return r.json();
-        })
-        .then(students => {
-          if (students && students.error) throw new Error(students.error);
-          onStudentsLoaded(students);
+      // Filter from in-memory catalog — instant after first page load
+      loadStudentCatalog()
+        .then(data => {
+          const list = (data.studentsByClass && data.studentsByClass[selectedClass]) || [];
+          onStudentsLoaded(list.map(s => `${s.name} (Roll No: ${s.rollNo})`));
         })
         .catch(err => {
           studentSpinner.style.display = 'none';
