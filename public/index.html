@@ -257,12 +257,72 @@
       display: none;
       text-align: center;
       padding: 12px 0 4px;
-      animation: fadeIn 0.3s ease-out;
     }
 
-    @keyframes fadeIn {
-      from { opacity: 0; }
-      to { opacity: 1; }
+    .success-card.animate-in {
+      display: block;
+      animation: successSlideIn 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+
+    .success-card.animate-in .success-icon-wrapper {
+      animation: successPop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.1s both;
+    }
+
+    .success-card.animate-in .success-title,
+    .success-card.animate-in .success-desc {
+      animation: fadeUp 0.4s ease-out 0.18s both;
+    }
+
+    .success-card.animate-in .receipt-box {
+      animation: fadeUp 0.4s ease-out 0.28s both;
+    }
+
+    .card-body.form-exit {
+      animation: formSlideOut 0.3s ease-in both;
+    }
+
+    @keyframes successSlideIn {
+      from {
+        opacity: 0;
+        transform: translateY(18px) scale(0.97);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    @keyframes successPop {
+      from {
+        opacity: 0;
+        transform: scale(0.4);
+      }
+      to {
+        opacity: 1;
+        transform: scale(1);
+      }
+    }
+
+    @keyframes fadeUp {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes formSlideOut {
+      from {
+        opacity: 1;
+        transform: translateY(0);
+      }
+      to {
+        opacity: 0;
+        transform: translateY(-12px);
+      }
     }
 
     .success-icon-wrapper {
@@ -626,7 +686,7 @@
       loadStudentCatalog()
         .then(data => {
           const list = (data.studentsByClass && data.studentsByClass[selectedClass]) || [];
-          onStudentsLoaded(list.map(s => `${s.name} (Roll No: ${s.rollNo})`));
+          onStudentsLoaded(list.map(s => `${s.name} (${s.rollNo})`));
         })
         .catch(err => {
           studentSpinner.style.display = 'none';
@@ -787,9 +847,14 @@
         recContact1.textContent = contact1.value;
         recWhatsApp.textContent = whatsapp.value;
 
-        // Hide form, show success card
-        attendanceForm.style.display = 'none';
-        successCard.style.display = 'block';
+        // Hide form (animated), show success card (animated)
+        const cardBody = attendanceForm.closest('.card-body');
+        if (cardBody) cardBody.classList.add('form-exit');
+        setTimeout(() => {
+          attendanceForm.style.display = 'none';
+          if (cardBody) cardBody.classList.remove('form-exit');
+          successCard.classList.add('animate-in');
+        }, 280);
       } else {
         showAlert(response ? response.error : 'Failed to record attendance.');
       }

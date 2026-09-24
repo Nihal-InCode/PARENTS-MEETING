@@ -337,7 +337,7 @@ function getStudentsByClass(selectedClass) {
         filteredStudents.push({
           rollNo: rollNo,
           name: name,
-          displayText: `${name} (Roll No: ${rollNo})`
+          displayText: `${name} (${rollNo})`
         });
       }
     }
@@ -390,7 +390,7 @@ function submitAttendance(formData) {
     
     // Generate server timestamp formatted nicely
     const timeZone = Session.getScriptTimeZone();
-    const formattedTimestamp = Utilities.formatDate(new Date(), timeZone, "yyyy-MM-dd HH:mm:ss");
+    const formattedTimestamp = Utilities.formatDate(new Date(), timeZone, "yyyy-MM-dd hh:mm:ss a");
     
     // Append row
     const newRow = [
