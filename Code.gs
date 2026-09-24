@@ -227,6 +227,11 @@ function setupSheet() {
   }
 
   Logger.log('Sheet setup complete! 159 students seeded successfully.');
+  try {
+    refreshDashboard();
+  } catch (e) {
+    Logger.log('Dashboard setup skipped: ' + e.message);
+  }
   return 'Sheet setup completed successfully! 159 student records seeded.';
 }
 
@@ -404,7 +409,14 @@ function submitAttendance(formData) {
     ];
     
     attendanceSheet.appendRow(newRow);
-    
+
+    // Keep the Dashboard view in sync (non-blocking for submit success)
+    try {
+      refreshDashboard();
+    } catch (dashError) {
+      Logger.log('Dashboard refresh skipped: ' + dashError.message);
+    }
+
     return {
       success: true,
       message: 'Attendance recorded successfully!',
@@ -417,4 +429,206 @@ function submitAttendance(formData) {
       error: error.message || 'An unexpected error occurred.'
     };
   }
+}
+
+/**
+ * Builds / refreshes the "Dashboard" sheet:
+ * - Summary: per-class Attended / Total / Missing
+ * - Detail: every student grouped by class with Attended|Missing status,
+ *   visit count, parent contacts, last visit time.
+ * Run manually via refreshDashboard() or automatically after each submit.
+ */
+function refreshDashboard() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let dash = ss.getSheetByName('Dashboard');
+  if (!dash) {
+    dash = ss.insertSheet('Dashboard');
+  } else {
+    dash.clear();
+  }
+
+  const attendedMap = buildAttendedMap_();
+
+  // ---- Title ----
+  dash.getRange('A1:I1').merge().setValue('Parents Meeting — Attendance Dashboard');
+  dash.getRange('A1').setFontWeight('bold').setFontSize(14)
+    .setBackground('#107070').setFontColor('#ffffff')
+    .setHorizontalAlignment('center');
+  dash.getRange('A2:I2').merge()
+    .setValue('Auto-updates after every submit · Green = parent attended · Red = missing');
+  dash.getRange('A2').setFontColor('#707078').setFontStyle('italic').setFontSize(10);
+
+  // ---- Summary header ----
+  const summaryHeaderRow = 4;
+  const summaryHeaders = ['Class', 'Total Students', 'Attended', 'Missing', '% Present'];
+  dash.getRange(summaryHeaderRow, 1, 1, summaryHeaders.length).setValues([summaryHeaders]);
+  styleHeader_(dash.getRange(summaryHeaderRow, 1, 1, summaryHeaders.length), '#0f172a');
+
+  const customOrder = ['BS1', 'BS2', 'BS3', 'BS4', 'BS5', 'BSU1', 'HS1', 'HS2', 'HSU1', 'HSU2'];
+  const classOrder = uniqueClasses_(STUDENT_RECORDS, customOrder);
+
+  // Count per class
+  const totals = {};
+  const attendedCounts = {};
+  STUDENT_RECORDS.forEach(function (r) {
+    const cls = r[0];
+    totals[cls] = (totals[cls] || 0) + 1;
+    const key = String(r[2]); // roll no
+    if (attendedMap[key] && attendedMap[key].count > 0) {
+      attendedCounts[cls] = (attendedCounts[cls] || 0) + 1;
+    }
+  });
+
+  const summaryRows = classOrder.map(function (cls) {
+    const total = totals[cls] || 0;
+    const att = attendedCounts[cls] || 0;
+    const miss = total - att;
+    const pct = total ? Math.round((att / total) * 100) + '%' : '0%';
+    return [cls, total, att, miss, pct];
+  });
+  if (summaryRows.length) {
+    const sumRange = dash.getRange(summaryHeaderRow + 1, 1, summaryRows.length, summaryHeaders.length);
+    sumRange.setValues(summaryRows);
+    sumRange.setBorder(true, true, true, true, true, true, '#e4e4e6', SpreadsheetApp.BorderStyle.SOLID);
+    // Color attended / missing columns
+    for (let i = 0; i < summaryRows.length; i++) {
+      const r = summaryHeaderRow + 1 + i;
+      const att = summaryRows[i][2];
+      const miss = summaryRows[i][3];
+      dash.getRange(r, 3).setBackground(att > 0 ? '#eaf5f5' : '#ffffff').setFontColor(att > 0 ? '#107070' : '#707078');
+      dash.getRange(r, 4).setBackground(miss > 0 ? '#fef2f2' : '#ffffff').setFontColor(miss > 0 ? '#b91c1c' : '#707078');
+    }
+  }
+
+  // ---- Detail table ----
+  const detailHeaderRow = summaryHeaderRow + summaryRows.length + 3;
+  const detailHeaders = [
+    'Class', 'Roll No', 'Student', 'Status', 'Visits',
+    'Parent Name', 'Contact (Father)', 'Contact (Mother)', 'WhatsApp', 'Last Visit'
+  ];
+  dash.getRange(detailHeaderRow, 1, 1, detailHeaders.length).setValues([detailHeaders]);
+  styleHeader_(dash.getRange(detailHeaderRow, 1, 1, detailHeaders.length), '#1e293b');
+
+  // Group records by class in custom order
+  const detailData = [];
+  const statusColIndexes = []; // 0-based within row for Status
+  classOrder.forEach(function (cls) {
+    const rows = STUDENT_RECORDS.filter(function (r) { return r[0] === cls; })
+      .sort(function (a, b) { return parseInt(a[2], 10) - parseInt(b[2], 10); });
+    rows.forEach(function (r) {
+      const rollNo = String(r[2]);
+      const name = r[3];
+      const hit = attendedMap[rollNo];
+      const attended = hit && hit.count > 0;
+      detailData.push([
+        cls,
+        rollNo,
+        name,
+        attended ? '? Attended' : '— Missing',
+        attended ? hit.count : 0,
+        attended ? hit.parent : '',
+        attended ? hit.c1 : '',
+        attended ? hit.c2 : '',
+        attended ? hit.wa : '',
+        attended ? hit.last : ''
+      ]);
+    });
+  });
+
+  if (detailData.length) {
+    const detailRange = dash.getRange(detailHeaderRow + 1, 1, detailData.length, detailHeaders.length);
+    detailRange.setValues(detailData);
+    detailRange.setBorder(true, true, true, true, true, true, '#e4e4e6', SpreadsheetApp.BorderStyle.SOLID);
+
+    for (let i = 0; i < detailData.length; i++) {
+      const r = detailHeaderRow + 1 + i;
+      const attended = detailData[i][3] === '? Attended';
+      const statusCell = dash.getRange(r, 4);
+      if (attended) {
+        statusCell.setBackground('#d1fae5').setFontColor('#065f46').setFontWeight('bold');
+        dash.getRange(r, 1, 1, 10).setBackground('#f0fdfa');
+      } else {
+        statusCell.setBackground('#fee2e2').setFontColor('#991b1b');
+      }
+    }
+
+    dash.getRange(detailHeaderRow + 1, 5, detailData.length, 1).setHorizontalAlignment('center');
+    dash.setFrozenRows(detailHeaderRow); // freeze through detail header
+  }
+
+  // Column widths
+  dash.setColumnWidth(1, 80);   // Class
+  dash.setColumnWidth(2, 80);   // Roll
+  dash.setColumnWidth(3, 180);  // Name
+  dash.setColumnWidth(4, 110);  // Status
+  dash.setColumnWidth(5, 70);   // Visits
+  dash.setColumnWidth(6, 160);  // Parent
+  dash.setColumnWidth(7, 130);  // Father
+  dash.setColumnWidth(8, 130);  // Mother
+  dash.setColumnWidth(9, 130);  // WhatsApp
+  dash.setColumnWidth(10, 150); // Last visit
+
+  // Move Dashboard to front (after Attendance data tabs stay available)
+  ss.setActiveSheet(dash);
+}
+
+function styleHeader_(range, color) {
+  range.setFontWeight('bold')
+    .setBackground(color)
+    .setFontColor('#ffffff')
+    .setHorizontalAlignment('center')
+    .setVerticalAlignment('middle');
+}
+
+function uniqueClasses_(records, customOrder) {
+  const seen = {};
+  const list = [];
+  records.forEach(function (r) {
+    if (r[0] && !seen[r[0]]) {
+      seen[r[0]] = true;
+      list.push(r[0]);
+    }
+  });
+  list.sort(function (a, b) {
+    const ia = customOrder.indexOf(a);
+    const ib = customOrder.indexOf(b);
+    if (ia !== -1 && ib !== -1) return ia - ib;
+    if (ia !== -1) return -1;
+    if (ib !== -1) return 1;
+    return a.localeCompare(b);
+  });
+  return list;
+}
+
+/**
+ * Maps roll number ? latest attendance info from the Attendance sheet.
+ * Student values look like "UNAIS (1102)" so we key by roll number.
+ */
+function buildAttendedMap_() {
+  const map = {};
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('Attendance');
+  if (!sheet) return map;
+
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return map;
+
+  const data = sheet.getRange(2, 1, lastRow - 1, 7).getValues();
+  for (let i = 0; i < data.length; i++) {
+    const ts = data[i][0];
+    const student = String(data[i][2] || '');
+    const m = student.match(/\((\d+)\)/);
+    if (!m) continue;
+    const rollNo = m[1];
+    if (!map[rollNo]) {
+      map[rollNo] = { count: 0, last: '', parent: '', c1: '', c2: '', wa: '' };
+    }
+    map[rollNo].count += 1;
+    map[rollNo].last = ts;
+    map[rollNo].parent = data[i][3] || map[rollNo].parent;
+    map[rollNo].c1 = data[i][4] || map[rollNo].c1;
+    map[rollNo].c2 = data[i][5] || map[rollNo].c2;
+    map[rollNo].wa = data[i][6] || map[rollNo].wa;
+  }
+  return map;
 }
