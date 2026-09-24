@@ -368,11 +368,14 @@ function getStudentsByClass(selectedClass) {
  * @returns {Object} Result object indicating success or error.
  */
 function submitAttendance(formData) {
+  // Serialize Sheet writes so concurrent submits can't corrupt rows
+  const lock = LockService.getScriptLock();
+  let lockAcquired = false;
   try {
     if (!formData) throw new Error('No data provided.');
-    
+
     const { selectedClass, studentName, parentName, contact1, contact2, whatsapp } = formData;
-    
+
     // Server-side validations
     if (!selectedClass) throw new Error('Class selection is required.');
     if (!studentName) throw new Error('Student selection is required.');
@@ -382,40 +385,40 @@ function submitAttendance(formData) {
     if (contact2 && contact2.trim() !== '' && !/^\d{10}$/.test(contact2.trim())) {
       throw new Error('Secondary contact must be a valid 10-digit number.');
     }
-    
+
+    // Wait up to 10s for a concurrent writer to finish
+    lockAcquired = lock.tryLock(10000);
+    if (!lockAcquired) throw new Error('Sheet is busy - please retry in a moment.');
+
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     let attendanceSheet = ss.getSheetByName('Attendance');
-    
+
     // Create sheet if missing
     if (!attendanceSheet) {
       attendanceSheet = ss.insertSheet('Attendance');
       const headers = ['Timestamp', 'Class', 'Student Name', 'Parent Name', 'Contact (Father)', 'Contact (Mother)', 'WhatsApp'];
       attendanceSheet.getRange(1, 1, 1, headers.length).setValues([headers]);
     }
-    
+
     // Generate server timestamp formatted nicely
     const timeZone = Session.getScriptTimeZone();
     const formattedTimestamp = Utilities.formatDate(new Date(), timeZone, "yyyy-MM-dd hh:mm:ss a");
-    
+
     // Append row
     const newRow = [
       formattedTimestamp,
       selectedClass.trim(),
       studentName.trim(),
       parentName.trim(),
-      "'" + contact1.trim(), // Single quote forces string formatting in Sheets for phone numbers
+      "'" + contact1.trim(),
       contact2 && contact2.trim() !== '' ? "'" + contact2.trim() : '',
       "'" + whatsapp.trim()
     ];
-    
+
     attendanceSheet.appendRow(newRow);
 
-    // Keep the Dashboard view in sync (non-blocking for submit success)
-    try {
-      refreshDashboard();
-    } catch (dashError) {
-      Logger.log('Dashboard refresh skipped: ' + dashError.message);
-    }
+    // Throttled dashboard: at most once every 15s under load
+    maybeRefreshDashboard_();
 
     return {
       success: true,
@@ -428,6 +431,27 @@ function submitAttendance(formData) {
       success: false,
       error: error.message || 'An unexpected error occurred.'
     };
+  } finally {
+    if (lockAcquired) {
+      try { lock.releaseLock(); } catch (e) { /* ignore */ }
+    }
+  }
+}
+
+/**
+ * Refresh Dashboard at most once per 15 seconds (property-backed throttle)
+ * so a burst of submits doesn't rebuild the sheet every time.
+ */
+function maybeRefreshDashboard_() {
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const last = Number(props.getProperty('DASH_LAST_REFRESH') || '0');
+    const now = Date.now();
+    if (now - last < 15000) return;
+    props.setProperty('DASH_LAST_REFRESH', String(now));
+    refreshDashboard();
+  } catch (e) {
+    Logger.log('maybeRefreshDashboard_ skipped: ' + e.message);
   }
 }
 
