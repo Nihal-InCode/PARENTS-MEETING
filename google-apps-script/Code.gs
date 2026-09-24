@@ -203,7 +203,6 @@ function setupSheet() {
     studentsSheet.getRange(2, 1, STUDENT_RECORDS.length, STUDENT_RECORDS[0].length).setValues(STUDENT_RECORDS);
   }
   studentsSheet.autoResizeColumns(1, studentHeaders.length);
-  studentsSheet.setFrozenRows(1);
   
   // 2. Setup 'Attendance' tab
   let attendanceSheet = ss.getSheetByName('Attendance');
@@ -223,7 +222,6 @@ function setupSheet() {
     attendanceHeaderRange.setFontColor('#ffffff');
     attendanceHeaderRange.setHorizontalAlignment('center');
     attendanceSheet.autoResizeColumns(1, attendanceHeaders.length);
-    attendanceSheet.setFrozenRows(1);
   }
 
   Logger.log('Sheet setup complete! 159 students seeded successfully.');
@@ -596,7 +594,6 @@ function refreshDashboard() {
     }
 
     dash.getRange(detailHeaderRow + 1, 5, detailData.length, 1).setHorizontalAlignment('center');
-    dash.setFrozenRows(detailHeaderRow);
   }
 
   // Column widths
