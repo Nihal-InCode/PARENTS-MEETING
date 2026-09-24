@@ -433,9 +433,9 @@ function submitAttendance(formData) {
 
 /**
  * Builds / refreshes the "Dashboard" sheet:
- * - Summary: per-class Attended / Total / Missing
- * - Detail: every student grouped by class with Attended|Missing status,
- *   visit count, parent contacts, last visit time.
+ * - Summary: per-class Attended / Total / Pending
+ * - Detail: every student grouped by class (section labels + spacer rows)
+ *   with Attended|Pending status, visit count, contacts, last visit.
  * Run manually via refreshDashboard() or automatically after each submit.
  */
 function refreshDashboard() {
@@ -450,17 +450,17 @@ function refreshDashboard() {
   const attendedMap = buildAttendedMap_();
 
   // ---- Title ----
-  dash.getRange('A1:I1').merge().setValue('Parents Meeting — Attendance Dashboard');
+  dash.getRange('A1:J1').merge().setValue('Parents Meeting - Attendance Dashboard');
   dash.getRange('A1').setFontWeight('bold').setFontSize(14)
     .setBackground('#107070').setFontColor('#ffffff')
     .setHorizontalAlignment('center');
-  dash.getRange('A2:I2').merge()
-    .setValue('Auto-updates after every submit · Green = parent attended · Red = missing');
+  dash.getRange('A2:J2').merge()
+    .setValue('Auto-updates after every submit | Green = Attended | Red = Pending');
   dash.getRange('A2').setFontColor('#707078').setFontStyle('italic').setFontSize(10);
 
   // ---- Summary header ----
   const summaryHeaderRow = 4;
-  const summaryHeaders = ['Class', 'Total Students', 'Attended', 'Missing', '% Present'];
+  const summaryHeaders = ['Class', 'Total Students', 'Attended', 'Pending', '% Present'];
   dash.getRange(summaryHeaderRow, 1, 1, summaryHeaders.length).setValues([summaryHeaders]);
   styleHeader_(dash.getRange(summaryHeaderRow, 1, 1, summaryHeaders.length), '#0f172a');
 
@@ -482,21 +482,20 @@ function refreshDashboard() {
   const summaryRows = classOrder.map(function (cls) {
     const total = totals[cls] || 0;
     const att = attendedCounts[cls] || 0;
-    const miss = total - att;
+    const pending = total - att;
     const pct = total ? Math.round((att / total) * 100) + '%' : '0%';
-    return [cls, total, att, miss, pct];
+    return [cls, total, att, pending, pct];
   });
   if (summaryRows.length) {
     const sumRange = dash.getRange(summaryHeaderRow + 1, 1, summaryRows.length, summaryHeaders.length);
     sumRange.setValues(summaryRows);
     sumRange.setBorder(true, true, true, true, true, true, '#e4e4e6', SpreadsheetApp.BorderStyle.SOLID);
-    // Color attended / missing columns
     for (let i = 0; i < summaryRows.length; i++) {
       const r = summaryHeaderRow + 1 + i;
       const att = summaryRows[i][2];
-      const miss = summaryRows[i][3];
+      const pending = summaryRows[i][3];
       dash.getRange(r, 3).setBackground(att > 0 ? '#eaf5f5' : '#ffffff').setFontColor(att > 0 ? '#107070' : '#707078');
-      dash.getRange(r, 4).setBackground(miss > 0 ? '#fef2f2' : '#ffffff').setFontColor(miss > 0 ? '#b91c1c' : '#707078');
+      dash.getRange(r, 4).setBackground(pending > 0 ? '#fef2f2' : '#ffffff').setFontColor(pending > 0 ? '#b91c1c' : '#707078');
     }
   }
 
@@ -509,10 +508,18 @@ function refreshDashboard() {
   dash.getRange(detailHeaderRow, 1, 1, detailHeaders.length).setValues([detailHeaders]);
   styleHeader_(dash.getRange(detailHeaderRow, 1, 1, detailHeaders.length), '#1e293b');
 
-  // Group records by class in custom order
+  // Group records by class, with a spacer row between each class
   const detailData = [];
-  const statusColIndexes = []; // 0-based within row for Status
-  classOrder.forEach(function (cls) {
+  const isSpacerRow = [];
+  classOrder.forEach(function (cls, classIndex) {
+    if (classIndex > 0) {
+      detailData.push([''.padEnd(1, ' '), '', '', '', '', '', '', '', '', '']);
+      isSpacerRow.push(true);
+    }
+    // Class section label row
+    detailData.push([cls + ' - Class / Batch', '', '', '', '', '', '', '', '', '']);
+    isSpacerRow.push('section');
+
     const rows = STUDENT_RECORDS.filter(function (r) { return r[0] === cls; })
       .sort(function (a, b) { return parseInt(a[2], 10) - parseInt(b[2], 10); });
     rows.forEach(function (r) {
@@ -524,7 +531,7 @@ function refreshDashboard() {
         cls,
         rollNo,
         name,
-        attended ? '? Attended' : '— Missing',
+        attended ? 'Attended' : 'Pending',
         attended ? hit.count : 0,
         attended ? hit.parent : '',
         attended ? hit.c1 : '',
@@ -532,6 +539,7 @@ function refreshDashboard() {
         attended ? hit.wa : '',
         attended ? hit.last : ''
       ]);
+      isSpacerRow.push(attended ? 'attended' : 'pending');
     });
   });
 
@@ -542,33 +550,43 @@ function refreshDashboard() {
 
     for (let i = 0; i < detailData.length; i++) {
       const r = detailHeaderRow + 1 + i;
-      const attended = detailData[i][3] === '? Attended';
+      const kind = isSpacerRow[i];
+      const rowRange = dash.getRange(r, 1, 1, 10);
+
+      if (kind === true || kind === 'section') {
+        // Spacer / section label â€” light neutral band
+        rowRange.setBackground(kind === 'section' ? '#e8eef0' : '#f4f4f5');
+        if (kind === 'section') {
+          dash.getRange(r, 1).setFontWeight('bold').setFontColor('#107070');
+        }
+        continue;
+      }
+
       const statusCell = dash.getRange(r, 4);
-      if (attended) {
+      if (kind === 'attended') {
         statusCell.setBackground('#d1fae5').setFontColor('#065f46').setFontWeight('bold');
-        dash.getRange(r, 1, 1, 10).setBackground('#f0fdfa');
+        rowRange.setBackground('#f0fdfa');
       } else {
         statusCell.setBackground('#fee2e2').setFontColor('#991b1b');
       }
     }
 
     dash.getRange(detailHeaderRow + 1, 5, detailData.length, 1).setHorizontalAlignment('center');
-    dash.setFrozenRows(detailHeaderRow); // freeze through detail header
+    dash.setFrozenRows(detailHeaderRow);
   }
 
   // Column widths
-  dash.setColumnWidth(1, 80);   // Class
-  dash.setColumnWidth(2, 80);   // Roll
-  dash.setColumnWidth(3, 180);  // Name
-  dash.setColumnWidth(4, 110);  // Status
-  dash.setColumnWidth(5, 70);   // Visits
-  dash.setColumnWidth(6, 160);  // Parent
-  dash.setColumnWidth(7, 130);  // Father
-  dash.setColumnWidth(8, 130);  // Mother
-  dash.setColumnWidth(9, 130);  // WhatsApp
-  dash.setColumnWidth(10, 150); // Last visit
+  dash.setColumnWidth(1, 140);
+  dash.setColumnWidth(2, 80);
+  dash.setColumnWidth(3, 180);
+  dash.setColumnWidth(4, 110);
+  dash.setColumnWidth(5, 70);
+  dash.setColumnWidth(6, 160);
+  dash.setColumnWidth(7, 130);
+  dash.setColumnWidth(8, 130);
+  dash.setColumnWidth(9, 130);
+  dash.setColumnWidth(10, 150);
 
-  // Move Dashboard to front (after Attendance data tabs stay available)
   ss.setActiveSheet(dash);
 }
 
