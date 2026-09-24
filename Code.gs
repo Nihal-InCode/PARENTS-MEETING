@@ -513,6 +513,9 @@ function refreshDashboard() {
   if (!dash) {
     dash = ss.insertSheet('Dashboard');
   } else {
+    // clear() does NOT unmerge — stale merges (e.g. old title/subtitle)
+    // can swallow the first class header rows. Break apart first.
+    dash.getRange(1, 1, Math.max(dash.getMaxRows(), 1), Math.max(dash.getMaxColumns(), 1)).breakApart();
     dash.clear();
   }
   dash.setFrozenRows(0); // remove any leftover fixed/frozen rows
@@ -565,7 +568,7 @@ function refreshDashboard() {
     }
   }
 
-  // ---- Detail: each class gets its own section + column heading ----
+  // ---- Detail: EACH class (including BS1) gets section + full column heading ----
   const detailHeaders = [
     'Class', 'Roll No', 'Student', 'Status', 'Visits',
     'Parent Name', 'Contact (Father)', 'Contact (Mother)', 'WhatsApp', 'Last Visit'
@@ -574,11 +577,10 @@ function refreshDashboard() {
   const detailData = [];
   const rowKinds = []; // 'section' | 'colheader' | 'spacer' | 'attended' | 'pending'
 
-  classOrder.forEach(function (cls, classIndex) {
-    if (classIndex > 0) {
-      detailData.push(['', '', '', '', '', '', '', '', '', '']);
-      rowKinds.push('spacer');
-    }
+  classOrder.forEach(function (cls) {
+    // Spacer before every class table (including the first / BS1)
+    detailData.push(['', '', '', '', '', '', '', '', '', '']);
+    rowKinds.push('spacer');
 
     // Section label for this class
     detailData.push([cls + ' - Class / Batch', '', '', '', '', '', '', '', '', '']);
