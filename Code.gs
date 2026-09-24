@@ -650,17 +650,10 @@ function refreshDashboard() {
     dash.getRange(startRow, 5, detailData.length, 1).setHorizontalAlignment('center');
   }
 
-  // Column widths
-  dash.setColumnWidth(1, 140);
-  dash.setColumnWidth(2, 80);
-  dash.setColumnWidth(3, 180);
-  dash.setColumnWidth(4, 110);
-  dash.setColumnWidth(5, 70);
-  dash.setColumnWidth(6, 160);
-  dash.setColumnWidth(7, 140);
-  dash.setColumnWidth(8, 140);
-  dash.setColumnWidth(9, 140);
-  dash.setColumnWidth(10, 150);
+  // Fit columns to their content so all text is visible
+  dash.autoResizeColumns(1, 10);
+  // Class column only needs half the old fixed width
+  dash.setColumnWidth(1, 70);
 
   ss.setActiveSheet(dash);
 }
