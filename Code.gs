@@ -503,10 +503,9 @@ function maybeRefreshDashboard_() {
 
 /**
  * Builds / refreshes the "Dashboard" sheet:
- * - Summary: per-class Attended / Total / Pending
- * - Detail: every student grouped by class (section labels + spacer rows)
- *   with Attended|Pending status, visit count, contacts, last visit.
- * Run manually via refreshDashboard() or automatically after each submit.
+ * - Summary: per-class Attended / Total / Pending (no percentage)
+ * - Per class: section label + full column headings + student rows
+ *   with Attended|Pending status, visits, contacts, last visit.
  */
 function refreshDashboard() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -525,13 +524,10 @@ function refreshDashboard() {
   dash.getRange('A1').setFontWeight('bold').setFontSize(14)
     .setBackground('#107070').setFontColor('#ffffff')
     .setHorizontalAlignment('center');
-  dash.getRange('A2:J2').merge()
-    .setValue('Auto-updates after every submit | Green = Attended | Red = Pending');
-  dash.getRange('A2').setFontColor('#707078').setFontStyle('italic').setFontSize(10);
 
   // ---- Summary header ----
-  const summaryHeaderRow = 4;
-  const summaryHeaders = ['Class', 'Total Students', 'Attended', 'Pending', '% Present'];
+  const summaryHeaderRow = 3;
+  const summaryHeaders = ['Class', 'Total Students', 'Attended', 'Pending'];
   dash.getRange(summaryHeaderRow, 1, 1, summaryHeaders.length).setValues([summaryHeaders]);
   styleHeader_(dash.getRange(summaryHeaderRow, 1, 1, summaryHeaders.length), '#0f172a');
 
@@ -554,8 +550,7 @@ function refreshDashboard() {
     const total = totals[cls] || 0;
     const att = attendedCounts[cls] || 0;
     const pending = total - att;
-    const pct = total ? Math.round((att / total) * 100) + '%' : '0%';
-    return [cls, total, att, pending, pct];
+    return [cls, total, att, pending];
   });
   if (summaryRows.length) {
     const sumRange = dash.getRange(summaryHeaderRow + 1, 1, summaryRows.length, summaryHeaders.length);
@@ -566,30 +561,32 @@ function refreshDashboard() {
       const att = summaryRows[i][2];
       const pending = summaryRows[i][3];
       dash.getRange(r, 3).setBackground(att > 0 ? '#eaf5f5' : '#ffffff').setFontColor(att > 0 ? '#107070' : '#707078');
-      dash.getRange(r, 4).setBackground(pending > 0 ? '#fef2f2' : '#ffffff').setFontColor(pending > 0 ? '#b91c1c' : '#707078');
+      dash.getRange(r, 4).setBackground(pending > 0 ? '#fef2f2' : '#ffffff').setFontColor(pending > 0 ? '#b91c1b' : '#707078');
     }
   }
 
-  // ---- Detail table ----
-  const detailHeaderRow = summaryHeaderRow + summaryRows.length + 3;
+  // ---- Detail: each class gets its own section + column heading ----
   const detailHeaders = [
     'Class', 'Roll No', 'Student', 'Status', 'Visits',
     'Parent Name', 'Contact (Father)', 'Contact (Mother)', 'WhatsApp', 'Last Visit'
   ];
-  dash.getRange(detailHeaderRow, 1, 1, detailHeaders.length).setValues([detailHeaders]);
-  styleHeader_(dash.getRange(detailHeaderRow, 1, 1, detailHeaders.length), '#1e293b');
 
-  // Group records by class, with a spacer row between each class
   const detailData = [];
-  const isSpacerRow = [];
+  const rowKinds = []; // 'section' | 'colheader' | 'spacer' | 'attended' | 'pending'
+
   classOrder.forEach(function (cls, classIndex) {
     if (classIndex > 0) {
-      detailData.push([''.padEnd(1, ' '), '', '', '', '', '', '', '', '', '']);
-      isSpacerRow.push(true);
+      detailData.push(['', '', '', '', '', '', '', '', '', '']);
+      rowKinds.push('spacer');
     }
-    // Class section label row
+
+    // Section label for this class
     detailData.push([cls + ' - Class / Batch', '', '', '', '', '', '', '', '', '']);
-    isSpacerRow.push('section');
+    rowKinds.push('section');
+
+    // Column headings for THIS class table
+    detailData.push(detailHeaders.slice());
+    rowKinds.push('colheader');
 
     const rows = STUDENT_RECORDS.filter(function (r) { return r[0] === cls; })
       .sort(function (a, b) { return parseInt(a[2], 10) - parseInt(b[2], 10); });
@@ -610,26 +607,32 @@ function refreshDashboard() {
         attended ? hit.wa : '',
         attended ? hit.last : ''
       ]);
-      isSpacerRow.push(attended ? 'attended' : 'pending');
+      rowKinds.push(attended ? 'attended' : 'pending');
     });
   });
 
   if (detailData.length) {
-    const detailRange = dash.getRange(detailHeaderRow + 1, 1, detailData.length, detailHeaders.length);
+    const startRow = summaryHeaderRow + summaryRows.length + 3;
+    const detailRange = dash.getRange(startRow, 1, detailData.length, detailHeaders.length);
     detailRange.setValues(detailData);
     detailRange.setBorder(true, true, true, true, true, true, '#e4e4e6', SpreadsheetApp.BorderStyle.SOLID);
 
     for (let i = 0; i < detailData.length; i++) {
-      const r = detailHeaderRow + 1 + i;
-      const kind = isSpacerRow[i];
+      const r = startRow + i;
+      const kind = rowKinds[i];
       const rowRange = dash.getRange(r, 1, 1, 10);
 
-      if (kind === true || kind === 'section') {
-        // Spacer / section label — light neutral band
-        rowRange.setBackground(kind === 'section' ? '#e8eef0' : '#f4f4f5');
-        if (kind === 'section') {
-          dash.getRange(r, 1).setFontWeight('bold').setFontColor('#107070');
-        }
+      if (kind === 'section') {
+        rowRange.setBackground('#e8eef0');
+        dash.getRange(r, 1).setFontWeight('bold').setFontColor('#107070');
+        continue;
+      }
+      if (kind === 'colheader') {
+        styleHeader_(rowRange, '#1e293b');
+        continue;
+      }
+      if (kind === 'spacer') {
+        rowRange.setBackground('#f4f4f5');
         continue;
       }
 
@@ -642,7 +645,7 @@ function refreshDashboard() {
       }
     }
 
-    dash.getRange(detailHeaderRow + 1, 5, detailData.length, 1).setHorizontalAlignment('center');
+    dash.getRange(startRow, 5, detailData.length, 1).setHorizontalAlignment('center');
   }
 
   // Column widths
@@ -652,9 +655,9 @@ function refreshDashboard() {
   dash.setColumnWidth(4, 110);
   dash.setColumnWidth(5, 70);
   dash.setColumnWidth(6, 160);
-  dash.setColumnWidth(7, 130);
-  dash.setColumnWidth(8, 130);
-  dash.setColumnWidth(9, 130);
+  dash.setColumnWidth(7, 140);
+  dash.setColumnWidth(8, 140);
+  dash.setColumnWidth(9, 140);
   dash.setColumnWidth(10, 150);
 
   ss.setActiveSheet(dash);
