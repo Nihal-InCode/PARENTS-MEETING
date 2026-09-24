@@ -1,0 +1,10 @@
+*.db
+*.xlsx
+*.txt
+.DS_Store
+node_modules/
+.vercel/
+~$*
+desktop.ini
+.env
+.env.*
