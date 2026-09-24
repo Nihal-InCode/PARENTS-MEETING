@@ -280,6 +280,52 @@ function jsonOutput(obj) {
 }
 
 /**
+ * Simple edit trigger: when anyone edits/deletes rows on the Attendance tab,
+ * rebuild the Dashboard so removed entries show as Pending again.
+ */
+function onEdit(e) {
+  try {
+    if (!e || !e.range) return;
+    const sheet = e.range.getSheet();
+    if (sheet.getName() !== 'Attendance') return;
+    refreshDashboard();
+  } catch (err) {
+    Logger.log('onEdit dashboard refresh failed: ' + err.message);
+  }
+}
+
+/**
+ * One-click reset: clear all Attendance data rows (keeps header) and
+ * rebuild Dashboard (everyone back to Pending).
+ * Run from the Apps Script editor.
+ */
+function clearAttendance() {
+  const lock = LockService.getScriptLock();
+  let lockAcquired = false;
+  try {
+    lockAcquired = lock.tryLock(10000);
+    if (!lockAcquired) throw new Error('Sheet is busy - try again.');
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName('Attendance');
+    if (sheet && sheet.getLastRow() > 1) {
+      sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).clearContent();
+    }
+    // Clear throttle so next refresh always runs
+    PropertiesService.getScriptProperties().deleteProperty('DASH_LAST_REFRESH');
+    refreshDashboard();
+    return 'Attendance cleared. Dashboard reset to all Pending.';
+  } catch (error) {
+    Logger.log('clearAttendance error: ' + error.message);
+    throw error;
+  } finally {
+    if (lockAcquired) {
+      try { lock.releaseLock(); } catch (e) { /* ignore */ }
+    }
+  }
+}
+
+/**
  * Retrieves a sorted list of unique classes from the 'Students' sheet.
  * @returns {Array<string>} Array of unique class names.
  */
