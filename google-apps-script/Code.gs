@@ -213,7 +213,7 @@ function setupSheet() {
   
   // Check if header exists in Attendance
   if (attendanceSheet.getLastRow() === 0) {
-    const attendanceHeaders = ['Timestamp', 'Class', 'Student Name', 'Parent Name', 'Contact 1', 'Contact 2', 'WhatsApp'];
+    const attendanceHeaders = ['Timestamp', 'Class', 'Student Name', 'Parent Name', 'Contact (Father)', 'Contact (Mother)', 'WhatsApp'];
     attendanceSheet.getRange(1, 1, 1, attendanceHeaders.length).setValues([attendanceHeaders]);
     
     // Format Attendance Header Row
@@ -384,7 +384,7 @@ function submitAttendance(formData) {
     // Create sheet if missing
     if (!attendanceSheet) {
       attendanceSheet = ss.insertSheet('Attendance');
-      const headers = ['Timestamp', 'Class', 'Student Name', 'Parent Name', 'Contact 1', 'Contact 2', 'WhatsApp'];
+      const headers = ['Timestamp', 'Class', 'Student Name', 'Parent Name', 'Contact (Father)', 'Contact (Mother)', 'WhatsApp'];
       attendanceSheet.getRange(1, 1, 1, headers.length).setValues([headers]);
     }
     
