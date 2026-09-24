@@ -665,6 +665,27 @@
 
       // 4. Form Submit
       attendanceForm.addEventListener('submit', handleFormSubmit);
+
+      // 5. Warm Apps Script early (kills cold-start before user hits Submit)
+      setTimeout(warmBackend, 400);
+      parentName.addEventListener('focus', warmBackend, { once: true });
+    }
+
+    let backendWarmed = false;
+    function warmBackend() {
+      if (backendWarmed) return;
+      backendWarmed = true;
+      fetch('/api/warm', { keepalive: true }).catch(() => {});
+    }
+
+    function formatLocalTimestamp() {
+      const d = new Date();
+      const pad = n => String(n).padStart(2, '0');
+      const h = d.getHours();
+      const h12 = h % 12 || 12;
+      const ampm = h >= 12 ? 'PM' : 'AM';
+      return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +
+        ' ' + pad(h12) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) + ' ' + ampm;
     }
 
     // Class selection changed
@@ -793,7 +814,9 @@
       return isValid;
     }
 
-    // Handle Submit
+    // Handle Submit — optimistic UI + background save
+    let submitting = false;
+
     function handleFormSubmit(e) {
       e.preventDefault();
 
@@ -801,6 +824,7 @@
         showAlert('Please correct the highlighted errors before submitting.');
         return;
       }
+      if (submitting) return;
 
       const formData = {
         selectedClass: classSelect.value,
@@ -811,57 +835,86 @@
         whatsapp: whatsapp.value.trim()
       };
 
-      // Set Loading State
+      submitting = true;
       submitBtn.disabled = true;
       btnText.textContent = 'Submitting...';
       btnSpinner.style.display = 'block';
 
-      fetch('/api/submit', {
+      // Snapshot form values for receipt (fields may reset later)
+      const snapshot = {
+        cls: formData.selectedClass,
+        student: formData.studentName,
+        parent: formData.parentName,
+        c1: formData.contact1,
+        wa: formData.whatsapp
+      };
+
+      // Start save immediately
+      const saveReq = fetch('/api/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
+        body: JSON.stringify(formData),
+        keepalive: true
       })
         .then(r => r.json().then(data => ({ ok: r.ok, data })))
-        .then(({ ok, data }) => {
-          if (ok && data && data.success) {
-            onSuccess(data);
-          } else {
-            onFailure({ message: (data && data.error) || 'Failed to record attendance.' });
-          }
-        })
-        .catch(err => onFailure({ message: err.message || String(err) }));
+        .catch(err => ({ ok: false, data: { error: err.message || String(err) } }));
+
+      // Show success almost instantly (perceived speed)
+      setTimeout(() => {
+        showSuccessUI({
+          success: true,
+          timestamp: formatLocalTimestamp()
+        }, snapshot);
+      }, 180);
+
+      // Confirm in background; roll back if the server rejects
+      saveReq.then(({ ok, data }) => {
+        submitting = false;
+        if (ok && data && data.success) {
+          if (recTime) recTime.textContent = data.timestamp || recTime.textContent;
+        } else {
+          rollbackSuccess((data && data.error) || 'Failed to record attendance.');
+        }
+      });
     }
 
-    // On Success
-    function onSuccess(response) {
+    // On Success (immediate UI)
+    function showSuccessUI(response, snap) {
       submitBtn.disabled = false;
       btnText.textContent = 'Submit Attendance';
       btnSpinner.style.display = 'none';
 
-      if (response && response.success) {
-        // Populate receipt
-        recTime.textContent = response.timestamp || new Date().toLocaleString();
-        recClass.textContent = classSelect.value;
-        recStudent.textContent = studentInput.value;
-        recParent.textContent = parentName.value;
-        recContact1.textContent = contact1.value;
-        recWhatsApp.textContent = whatsapp.value;
+      recTime.textContent = (response && response.timestamp) || formatLocalTimestamp();
+      recClass.textContent = snap.cls;
+      recStudent.textContent = snap.student;
+      recParent.textContent = snap.parent;
+      recContact1.textContent = snap.c1;
+      recWhatsApp.textContent = snap.wa;
 
-        // Hide form (animated), show success card (animated)
-        const cardBody = attendanceForm.closest('.card-body');
-        if (cardBody) cardBody.classList.add('form-exit');
-        setTimeout(() => {
-          attendanceForm.style.display = 'none';
-          if (cardBody) cardBody.classList.remove('form-exit');
-          successCard.classList.add('animate-in');
-        }, 280);
-      } else {
-        showAlert(response ? response.error : 'Failed to record attendance.');
-      }
+      const cardBody = attendanceForm.closest('.card-body');
+      if (cardBody) cardBody.classList.add('form-exit');
+      setTimeout(() => {
+        attendanceForm.style.display = 'none';
+        if (cardBody) cardBody.classList.remove('form-exit');
+        successCard.classList.add('animate-in');
+      }, 200);
     }
 
-    // On Failure
+    // If background save failed after optimistic success
+    function rollbackSuccess(message) {
+      successCard.classList.remove('animate-in');
+      successCard.style.display = 'none';
+      attendanceForm.style.display = 'block';
+      submitBtn.disabled = false;
+      btnText.textContent = 'Submit Attendance';
+      btnSpinner.style.display = 'none';
+      showAlert('Save failed: ' + message + ' — please try again.');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    // Legacy failure path (kept for safety)
     function onFailure(err) {
+      submitting = false;
       submitBtn.disabled = false;
       btnText.textContent = 'Submit Attendance';
       btnSpinner.style.display = 'none';
