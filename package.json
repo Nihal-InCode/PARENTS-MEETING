@@ -1,7 +1,0 @@
-{
-  "name": "parents-meeting-record",
-  "version": "1.0.0",
-  "private": true,
-  "description": "Parents Meeting Record attendance form (Vercel + Apps Script backend)",
-  "dependencies": {}
-}
