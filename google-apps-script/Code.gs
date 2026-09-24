@@ -187,6 +187,7 @@ function setupSheet() {
   } else {
     studentsSheet.clear(); // Clear existing content to re-seed cleanly
   }
+  studentsSheet.setFrozenRows(0);
   
   const studentHeaders = ['Class', 'Student ID', 'Roll No', 'Name'];
   studentsSheet.getRange(1, 1, 1, studentHeaders.length).setValues([studentHeaders]);
@@ -209,6 +210,7 @@ function setupSheet() {
   if (!attendanceSheet) {
     attendanceSheet = ss.insertSheet('Attendance');
   }
+  attendanceSheet.setFrozenRows(0);
   
   // Check if header exists in Attendance
   if (attendanceSheet.getLastRow() === 0) {
@@ -468,6 +470,7 @@ function refreshDashboard() {
   } else {
     dash.clear();
   }
+  dash.setFrozenRows(0); // remove any leftover fixed/frozen rows
 
   const attendedMap = buildAttendedMap_();
 
